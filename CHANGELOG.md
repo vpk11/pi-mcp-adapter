@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.16.0] - 2026-07-28
+
 ### Added
 - Added the per-server OAuth `skipIssuerValidation` opt-out for authorization servers that publish a mismatched `issuer`, keeping the strict RFC 8414 §3.3 issuer-echo check everywhere else.
 
