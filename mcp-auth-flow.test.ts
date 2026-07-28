@@ -297,6 +297,33 @@ describe("mcp-auth-flow", () => {
       )
     })
 
+    it("should reject non-boolean OAuth skipIssuerValidation values", () => {
+      assert.throws(
+        () => extractOAuthConfig({
+          url: "https://api.example.com/mcp",
+          auth: "oauth",
+          oauth: { skipIssuerValidation: "true" as unknown as boolean },
+        }),
+        /skipIssuerValidation must be a boolean/
+      )
+    })
+
+    it("should keep OAuth issuer validation strict unless it is opted out", () => {
+      const strictByDefault = extractOAuthConfig({
+        url: "https://api.example.com/mcp",
+        auth: "oauth",
+        oauth: {},
+      })
+      const optedOut = extractOAuthConfig({
+        url: "https://api.example.com/mcp",
+        auth: "oauth",
+        oauth: { skipIssuerValidation: true },
+      })
+
+      assert.strictEqual(strictByDefault.skipIssuerValidation, undefined)
+      assert.strictEqual(optedOut.skipIssuerValidation, true)
+    })
+
     it("should trim OAuth redirectUri and client metadata values", () => {
       const config = extractOAuthConfig({
         url: "https://api.example.com/mcp",

@@ -51,12 +51,16 @@ export interface AuthenticateOptions {
   authStorageOptions?: AuthStorageOptions
   signal?: AbortSignal
   runtime?: McpOAuthRuntime
+  /** Resolved per-server OAuth config, for callers that hold no ServerEntry */
+  oauth?: McpOAuthConfig
 }
 
 type AuthDiscovery = {
   resourceMetadataUrl?: URL
   scope?: string
 }
+
+type SdkAuthOptions = Parameters<typeof runSdkAuth>[1]
 
 type PendingAuth = {
   serverName: string
@@ -193,6 +197,12 @@ export function extractOAuthConfig(definition: ServerEntry): McpOAuthConfig {
     }
     config.clientUri = clientUri
   }
+  if (definition.oauth?.skipIssuerValidation !== undefined) {
+    if (typeof definition.oauth.skipIssuerValidation !== "boolean") {
+      throw new Error("OAuth skipIssuerValidation must be a boolean")
+    }
+    config.skipIssuerValidation = definition.oauth.skipIssuerValidation
+  }
   return config
 }
 
@@ -234,6 +244,26 @@ async function probeAuthDiscovery(serverUrl: string, definition?: ServerEntry, s
     return {}
   } finally {
     clearTimeout(timer)
+  }
+}
+
+/**
+ * Build the SDK auth options from the discovered endpoints and the provider's
+ * configured issuer policy. Every runSdkAuth call goes through here so the
+ * policy cannot diverge between starting and completing a flow.
+ */
+function buildSdkAuthOptions(
+  authProvider: McpOAuthProvider,
+  serverUrl: string,
+  discovery: AuthDiscovery,
+  authorizationResponse?: { authorizationCode: string; iss?: string },
+): SdkAuthOptions {
+  return {
+    serverUrl,
+    ...discovery,
+    ...(authorizationResponse ? { authorizationCode: authorizationResponse.authorizationCode } : {}),
+    ...(authorizationResponse?.iss !== undefined ? { iss: authorizationResponse.iss } : {}),
+    ...(authProvider.skipIssuerMetadataValidation ? { skipIssuerMetadataValidation: true } : {}),
   }
 }
 
@@ -307,7 +337,7 @@ export async function startAuth(
     try {
       const discovery = await probeAuthDiscovery(serverUrl, definition, signal)
       throwIfAborted(signal)
-      const result = await abortable(runSdkAuth(authProvider, { serverUrl, ...discovery }), signal)
+      const result = await abortable(runSdkAuth(authProvider, buildSdkAuthOptions(authProvider, serverUrl, discovery)), signal)
       throwIfAborted(signal)
       if (result !== "AUTHORIZED") {
         throw new UnauthorizedError("Failed to authorize")
@@ -373,7 +403,7 @@ export async function startAuth(
 
     const discovery = await probeAuthDiscovery(serverUrl, definition, signal)
     throwIfAborted(signal)
-    const result = await abortable(runSdkAuth(authProvider, { serverUrl, ...discovery }), signal)
+    const result = await abortable(runSdkAuth(authProvider, buildSdkAuthOptions(authProvider, serverUrl, discovery)), signal)
     throwIfAborted(signal)
     if (result === "AUTHORIZED") {
       authProvider.deactivate()
@@ -572,12 +602,12 @@ export async function completeAuth(
   let keepPendingForRetry = false
   let caughtError: unknown
   try {
-    const result = await abortable(runSdkAuth(pendingAuth.authProvider, {
-      serverUrl: pendingAuth.serverUrl,
-      authorizationCode: code,
-      ...(iss !== undefined ? { iss } : {}),
-      ...pendingAuth.discovery,
-    }), signal)
+    const result = await abortable(runSdkAuth(pendingAuth.authProvider, buildSdkAuthOptions(
+      pendingAuth.authProvider,
+      pendingAuth.serverUrl,
+      pendingAuth.discovery,
+      { authorizationCode: code, ...(iss !== undefined ? { iss } : {}) },
+    )), signal)
     throwIfAborted(signal)
     if (result !== "AUTHORIZED") {
       throw new UnauthorizedError("Failed to authorize")
@@ -740,7 +770,11 @@ export async function getValidToken(
 
     try {
       // Create auth provider for token refresh
-      const authProvider = new McpOAuthProvider(serverName, serverUrl, {}, {
+      // Refresh reuses stored client info, so only the issuer policy is configured.
+      const refreshOAuthConfig: McpOAuthConfig = options.oauth?.skipIssuerValidation !== undefined
+        ? { skipIssuerValidation: options.oauth.skipIssuerValidation }
+        : {}
+      const authProvider = new McpOAuthProvider(serverName, serverUrl, refreshOAuthConfig, {
         onRedirect: async () => {},
       }, authStorageOptions, runtime.signal)
 
@@ -754,7 +788,7 @@ export async function getValidToken(
 
         const discovery = await probeAuthDiscovery(serverUrl, undefined, signal)
         throwIfAborted(signal)
-        const result = await abortable(runSdkAuth(authProvider, { serverUrl, ...discovery }), signal)
+        const result = await abortable(runSdkAuth(authProvider, buildSdkAuthOptions(authProvider, serverUrl, discovery)), signal)
         throwIfAborted(signal)
         if (result !== "AUTHORIZED") {
           return null

@@ -253,6 +253,45 @@ describe("mcp-auth-flow explicit auth", () => {
     expect(mocks.sdkAuth).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps RFC 8414 §3.3 issuer validation strict unless the server opts out", async () => {
+    const { IssuerMismatchError } = await import("@modelcontextprotocol/client");
+    mocks.sdkAuth.mockRejectedValueOnce(new IssuerMismatchError(
+      "metadata",
+      "https://auth.example.com/tenant",
+      "https://auth.example.com",
+    ));
+    const { startAuth } = await import("../mcp-auth-flow.ts");
+
+    await expect(startAuth("strict-issuer", "https://api.example.com/mcp", {
+      url: "https://api.example.com/mcp",
+      auth: "oauth",
+    })).rejects.toThrow(IssuerMismatchError);
+
+    expect(mocks.sdkAuth.mock.calls[0][1]).not.toHaveProperty("skipIssuerMetadataValidation");
+  });
+
+  it("forwards the issuer validation opt-out when starting and completing OAuth", async () => {
+    mocks.sdkAuth.mockImplementation(async (provider, options) => {
+      if (options.authorizationCode) return "AUTHORIZED";
+      await provider.redirectToAuthorization(new URL("https://auth.example.com/authorize"));
+      return "REDIRECT";
+    });
+    const { completeAuthFromInput, startAuth } = await import("../mcp-auth-flow.ts");
+
+    const started = await startAuth("skip-issuer", "https://api.example.com/mcp", {
+      url: "https://api.example.com/mcp",
+      auth: "oauth",
+      oauth: { skipIssuerValidation: true },
+    });
+
+    expect(started.authorizationUrl).toBe("https://auth.example.com/authorize");
+    await expect(completeAuthFromInput("skip-issuer", "issuer-code")).resolves.toBe("authenticated");
+    expect(mocks.sdkAuth).toHaveBeenCalledTimes(2);
+    for (const [, options] of mocks.sdkAuth.mock.calls) {
+      expect(options.skipIssuerMetadataValidation).toBe(true);
+    }
+  });
+
   it("re-registers dynamic OAuth clients when only stale client info is stored", async () => {
     mocks.sdkAuth.mockImplementationOnce(async (provider) => {
       expect(await provider.clientInformation()).toBeUndefined();

@@ -78,6 +78,7 @@ You can optionally provide a pre-registered client:
 - `oauth.redirectUri` - Exact browser callback URI to advertise and bind, such as `http://localhost:3118/callback` (optional)
 - `oauth.clientName` - Client display name used for dynamic registration (optional, defaults to `Pi Coding Agent`)
 - `oauth.clientUri` - Client homepage URI used for dynamic registration (optional)
+- `oauth.skipIssuerValidation` - Skip the RFC 8414 §3.3 issuer-echo check for authorization servers that publish a mismatched `issuer` (optional, defaults to strict validation)
 
 Dynamic clients normally omit `oauth.redirectUri`; the adapter starts the callback server lazily on the default loopback host (`localhost`) and asks the OS for an available local port when auth begins. Use `oauth.redirectUri` when the provider requires a pre-registered callback, such as Slack MCP's Claude-compatible `http://localhost:3118/callback`. The URI must use `http://` with `localhost`, `127.0.0.1`, or `[::1]`, include an explicit port, and its host/path become the bound callback endpoint.
 
@@ -195,6 +196,8 @@ The SDK attempts to discover OAuth endpoints using:
 1. **RFC 9728 Metadata** - Fetches `/.well-known/oauth-protected-resource`
 2. **WWW-Authenticate Header** - Parses `resource_metadata` from 401 responses
 
+Authorization server metadata must echo the identifier it was fetched from (RFC 8414 §3.3), otherwise discovery fails with `IssuerMismatchError`. Set `oauth.skipIssuerValidation` on the affected server when its authorization server publishes a mismatched `issuer`.
+
 ### Dynamic Client Registration
 
 If no `clientId` is provided, the SDK:
@@ -250,6 +253,10 @@ Persistent OAuth credentials are written to the OS credential store. Legacy plai
 
 Credentials are tied to a specific server URL. If the URL changes, the credentials are invalidated and re-authentication is required.
 
+### Issuer Validation
+
+Authorization server metadata is validated against the identifier it was fetched from (RFC 8414 §3.3), which protects against authorization server mix-up. `oauth.skipIssuerValidation` opts a single server out of that check, so every other server keeps strict validation.
+
 ## Troubleshooting
 
 ### "No OAuth tokens found"
@@ -270,6 +277,22 @@ The SDK automatically discovers OAuth endpoints from the MCP server. If discover
         "clientId": "your-client-id",
         "scope": "read"
       }
+    }
+  }
+}
+```
+
+### "Issuer mismatch in authorization server metadata (RFC 8414 §3.3)"
+
+The authorization server publishes an `issuer` that differs from the URL its metadata was fetched from. Opt that server out of the check:
+
+```json
+{
+  "mcpServers": {
+    "atlassian": {
+      "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+      "auth": "oauth",
+      "oauth": { "skipIssuerValidation": true }
     }
   }
 }
