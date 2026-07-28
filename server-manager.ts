@@ -684,6 +684,14 @@ export class McpServerManager {
       this.oauthRuntime?.signal,
     );
 
+    // The provider carries the configured RFC 8414 §3.3 issuer policy, so both
+    // transports read it from the same source as the auth flow.
+    const buildTransportOptions = (authProvider?: McpOAuthProvider) => ({
+      requestInit,
+      authProvider,
+      ...(authProvider?.skipIssuerMetadataValidation ? { skipIssuerMetadataValidation: true } : {}),
+    });
+
     // Explicit OAuth must check the secure credential store before connecting.
     let authState: HttpAuthProviderState = supportsOAuth(definition)
       ? definition.auth === undefined
@@ -695,10 +703,7 @@ export class McpServerManager {
     // creating the provider until the server proves that authentication is needed.
     for (;;) {
       const authProvider = "provider" in authState ? authState.provider : undefined;
-      const streamableTransport = new StreamableHTTPClientTransport(url, {
-        requestInit,
-        authProvider,
-      });
+      const streamableTransport = new StreamableHTTPClientTransport(url, buildTransportOptions(authProvider));
       const probeTransport = traceObserver
         ? wrapTransportWithMcpTrace(streamableTransport, serverName, "streamable-http", traceObserver)
         : streamableTransport;
@@ -722,7 +727,7 @@ export class McpServerManager {
         }
 
         // StreamableHTTP works - create fresh transport for actual use
-        return new StreamableHTTPClientTransport(url, { requestInit, authProvider });
+        return new StreamableHTTPClientTransport(url, buildTransportOptions(authProvider));
       } catch (error) {
         if (error instanceof AggregateError && (
           error.message === "MCP connection abort cleanup failed" ||
@@ -762,7 +767,7 @@ export class McpServerManager {
         }
 
         // SSE is the legacy transport
-        return new SSEClientTransport(url, { requestInit, authProvider });
+        return new SSEClientTransport(url, buildTransportOptions(authProvider));
       }
     }
   }

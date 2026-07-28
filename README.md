@@ -187,6 +187,7 @@ In the configuration examples below, `30000` is illustrative only. If `requestTi
 | `oauth.redirectUri` | Exact localhost redirect URI for browser OAuth, including port and path, for providers that pre-register callbacks |
 | `oauth.clientName` | Client display name advertised during dynamic registration |
 | `oauth.clientUri` | Client homepage URI advertised during dynamic registration |
+| `oauth.skipIssuerValidation` | Skip the RFC 8414 §3.3 issuer-echo check for authorization servers that publish a mismatched `issuer`; validation stays strict when omitted |
 | `bearerToken` / `bearerTokenEnv` | Token or env var name; `bearerToken` supports `${VAR}` and `$env:VAR` interpolation. A leading `!` in `bearerToken` runs a command when the HTTP server connects; use `!!` for a literal leading `!`. |
 | `lifecycle` | `"lazy"` (default), `"eager"`, `"keep-alive"`, or `"lazy-keep-alive"` |
 | `idleTimeout` | Minutes before idle disconnect (overrides global) |

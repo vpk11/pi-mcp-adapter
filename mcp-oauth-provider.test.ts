@@ -96,6 +96,26 @@ describe("McpOAuthProvider", () => {
     })
   })
 
+  describe("skipIssuerMetadataValidation", () => {
+    it("should validate the issuer when the config omits the opt-out", () => {
+      const provider = createProvider()
+
+      assert.strictEqual(provider.skipIssuerMetadataValidation, false)
+    })
+
+    it("should validate the issuer when the opt-out is disabled", () => {
+      const provider = createProvider({ skipIssuerValidation: false })
+
+      assert.strictEqual(provider.skipIssuerMetadataValidation, false)
+    })
+
+    it("should skip issuer validation when the opt-out is enabled", () => {
+      const provider = createProvider({ skipIssuerValidation: true })
+
+      assert.strictEqual(provider.skipIssuerMetadataValidation, true)
+    })
+  })
+
   describe("clientMetadata", () => {
     it("should return correct metadata for public client", () => {
       const provider = createProvider()

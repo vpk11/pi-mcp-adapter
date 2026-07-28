@@ -18,6 +18,7 @@ type TransportOptions = {
     headers?: Record<string, string>;
   };
   authProvider?: OAuthProviderLike;
+  skipIssuerMetadataValidation?: boolean;
 };
 
 type HttpTransportMock = {
@@ -29,6 +30,8 @@ type HttpTransportMock = {
 const mocks = vi.hoisted(() => ({
   clients: [] as any[],
   httpTransports: [] as HttpTransportMock[],
+  sseTransports: [] as HttpTransportMock[],
+  probeConnectErrors: [] as unknown[],
 }));
 
 vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
@@ -39,7 +42,10 @@ vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
       options,
       setRequestHandler: vi.fn(),
       setNotificationHandler: vi.fn(),
-      connect: vi.fn(async () => undefined),
+      connect: vi.fn(async () => {
+        const probeConnectError = mocks.probeConnectErrors.shift();
+        if (probeConnectError) throw probeConnectError;
+      }),
       listTools: vi.fn(async () => ({ tools: [] })),
       listResources: vi.fn(async () => ({ resources: [] })),
       close: vi.fn(async () => undefined),
@@ -52,7 +58,11 @@ vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
     mocks.httpTransports.push(transport);
     return transport;
   }),
-  SSEClientTransport: vi.fn(),
+  SSEClientTransport: vi.fn().mockImplementation((url: URL, options: TransportOptions) => {
+    const transport = { url, options, close: vi.fn(async () => undefined) };
+    mocks.sseTransports.push(transport);
+    return transport;
+  }),
 }));
 
 vi.mock("@modelcontextprotocol/client/stdio", () => ({
@@ -73,6 +83,8 @@ describe("McpServerManager HTTP bearer auth", () => {
   beforeEach(() => {
     mocks.clients.length = 0;
     mocks.httpTransports.length = 0;
+    mocks.sseTransports.length = 0;
+    mocks.probeConnectErrors.length = 0;
   });
 
   afterEach(() => {
@@ -226,6 +238,48 @@ describe("McpServerManager HTTP bearer auth", () => {
     expect(authProvider?.clientMetadata?.redirect_uris).toEqual(["http://127.0.0.1:3118/callback"]);
     expect(authProvider?.clientMetadata?.client_name).toBe("Custom MCP");
     expect(authProvider?.clientMetadata?.client_uri).toBe("https://example.com/custom-mcp");
+  });
+
+  it("keeps issuer validation strict for HTTP transports unless the server opts out", async () => {
+    const { McpServerManager } = await import("../server-manager.ts");
+
+    const manager = new McpServerManager();
+    await manager.connect("remote", {
+      url: "https://example.test/mcp",
+      auth: "oauth",
+    });
+
+    expect(mocks.httpTransports.at(-1)!.options).not.toHaveProperty("skipIssuerMetadataValidation");
+  });
+
+  it("forwards the issuer validation opt-out to HTTP transports", async () => {
+    const { McpServerManager } = await import("../server-manager.ts");
+
+    const manager = new McpServerManager();
+    await manager.connect("remote", {
+      url: "https://example.test/mcp",
+      auth: "oauth",
+      oauth: { skipIssuerValidation: true },
+    });
+
+    expect(mocks.httpTransports).not.toHaveLength(0);
+    for (const transport of mocks.httpTransports) {
+      expect(transport.options.skipIssuerMetadataValidation).toBe(true);
+    }
+  });
+
+  it("forwards the issuer validation opt-out to the SSE fallback transport", async () => {
+    const { McpServerManager } = await import("../server-manager.ts");
+    mocks.probeConnectErrors.push(new Error("streamable http not supported"));
+
+    const manager = new McpServerManager();
+    await manager.connect("remote", {
+      url: "https://example.test/mcp",
+      auth: "oauth",
+      oauth: { skipIssuerValidation: true },
+    });
+
+    expect(mocks.sseTransports.at(-1)!.options.skipIssuerMetadataValidation).toBe(true);
   });
 
   it("applies the configured timeout to the HTTP probe connect", async () => {

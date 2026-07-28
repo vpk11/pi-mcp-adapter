@@ -313,6 +313,8 @@ export interface OAuthConfig {
   clientName?: string;
   /** Client homepage URI for dynamic registration */
   clientUri?: string;
+  /** Skip the RFC 8414 §3.3 issuer-echo check (security-weakening; strict when omitted) */
+  skipIssuerValidation?: boolean;
 }
 
 // Server configuration

@@ -73,6 +73,7 @@ export interface McpOAuthConfig {
   redirectUri?: string
   clientName?: string
   clientUri?: string
+  skipIssuerValidation?: boolean
 }
 
 /** Callbacks for OAuth flow interactions */
@@ -109,6 +110,11 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
   private get usesClientCredentials(): boolean {
     return this.config.grantType === "client_credentials"
+  }
+
+  /** Configured RFC 8414 §3.3 issuer-echo policy, under the SDK's option name. */
+  get skipIssuerMetadataValidation(): boolean {
+    return this.config.skipIssuerValidation === true
   }
 
   deactivate(): void {
